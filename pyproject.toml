@@ -19,8 +19,7 @@ dependencies = [
 [project.scripts]
 server = "sre_env.server.app:main"
 
+
 [tool.setuptools]
-include-package-data = true
-packages = ["sre_env", "sre_env.server"]
-package-dir = { "sre_env" = ".", "sre_env.server" = "server" }
+packages = ["sre_env"]
 
