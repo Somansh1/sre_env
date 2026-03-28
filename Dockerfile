@@ -58,9 +58,7 @@ COPY --from=builder /app/env /app/env
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Set PYTHONPATH so imports work correctly
-ENV PYTHONPATH="/app/env:/app/env/sre_env"
-ENV ENABLE_WEB_INTERFACE=true
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH="/app/env"
 
 # Health check using Python (more portable than curl/wget)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
@@ -68,4 +66,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Run the FastAPI server
 # The module path is constructed to work with the /app/env structure
-CMD ["sh", "-c", "cd /app/env && uvicorn sre_env.server.app:app --host 0.0.0.0 --port 8000"]
+ENV ENABLE_WEB_INTERFACE=true
+CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host 0.0.0.0 --port 8000"]
