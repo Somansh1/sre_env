@@ -3,9 +3,9 @@ import uuid
 import math
 from typing import Dict, List, Optional
 try:
-    from models import SREAction, SREObservation, SREState
+    from models import SREAction, SREObservation, SREState, SREReward
 except (ImportError, ValueError):
-    from ..models import SREAction, SREObservation, SREState
+    from ..models import SREAction, SREObservation, SREState, SREReward
 from openenv.core.env_server.interfaces import Environment
 
 # Fixed topology
@@ -72,7 +72,7 @@ class SREEnvironment(Environment):
                 "leak_counter": 0.0,
                 "restarting_timer": 0,
                 "scaling_timer": 0,
-                "flapping_state": False
+                "flapping_state": 0.0
             }
 
         self._state = SREState(
@@ -183,7 +183,7 @@ class SREEnvironment(Environment):
             if tm["restarting_timer"] == 0:
                 # 30% chance to flip state
                 if self.rng.random() < 0.3:
-                    tm["flapping_state"] = not tm["flapping_state"]
+                    tm["flapping_state"] = 1.0 if tm["flapping_state"] == 0.0 else 0.0
 
         # 3. Calculate propagated metrics (Bottom-Up)
         # Sort topological from leaves to root
@@ -207,7 +207,7 @@ class SREEnvironment(Environment):
                 if st.failure_mode == "db_connection_leak" and s == st.root_cause_service:
                     lat += (tm["leak_counter"] * 50.0) / tm["capacity"]
                 elif st.failure_mode == "flapping_network" and s == st.root_cause_service:
-                    err = 1.0 if tm["flapping_state"] else 0.0
+                    err = 1.0 if tm["flapping_state"] == 1.0 else 0.0
                 elif st.failure_mode == "single_oom" and s == st.root_cause_service:
                     if tm["leak_counter"] > 3:
                         err = 1.0
@@ -249,8 +249,7 @@ class SREEnvironment(Environment):
     def _make_observation(self, calc_metrics=None, sla_status=None, reward_hint=0.0) -> SREObservation:
         st = self._state
         
-        # Calculate structured reward breakdown
-        from ..models import SREReward
+        # Structured reward breakdown
         
         sla_comp = 0.0
         cost_pen = 0.0
