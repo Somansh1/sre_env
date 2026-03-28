@@ -1,0 +1,9 @@
+.git
+__pycache__
+*.pyc
+.ipynb_checkpoints
+.venv
+vnv
+env
+node_modules
+.DS_Store

@@ -13,17 +13,19 @@ from typing import Optional
 from fastapi import Query
 # Support both in-repo and standalone imports
 try:
-    # In-repo imports (when running from OpenEnv repository)
+    # Try absolute imports (standalone mode)
+    from openenv.core.env_server.http_server import create_app
+    import models
+    from server.sre_environment import SREEnvironment
+    import grader
+    from models import SREAction, SREObservation
+    from grader import grade_episode, TASKS, ACTION_SCHEMA
+except ImportError:
+    # Try relative imports (in-repo mode)
     from openenv.core.env_server.http_server import create_app
     from ..models import SREAction, SREObservation
     from .sre_environment import SREEnvironment
     from ..grader import grade_episode, TASKS, ACTION_SCHEMA
-except ImportError:
-    # Standalone imports (when environment is standalone)
-    from openenv.core.env_server.http_server import create_app
-    from models import SREAction, SREObservation
-    from server.sre_environment import SREEnvironment
-    from grader import grade_episode, TASKS, ACTION_SCHEMA
 
 
 def create_sre_environment():

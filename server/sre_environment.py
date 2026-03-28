@@ -2,7 +2,10 @@ import random
 import uuid
 import math
 from typing import Dict, List, Optional
-from ..models import SREAction, SREObservation, SREState
+try:
+    from models import SREAction, SREObservation, SREState
+except (ImportError, ValueError):
+    from ..models import SREAction, SREObservation, SREState
 from openenv.core.env_server.interfaces import Environment
 
 # Fixed topology
