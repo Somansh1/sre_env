@@ -1,44 +1,37 @@
-# Multi-stage build for SRE Autopilot (Standalone HF Space)
-# Aligned with the official echo_env standalone pattern.
+# Robust Dockerfile for SRE Autopilot (Standalone HF Space)
+# Uses pip for maximum compatibility on Hugging Face Spaces.
 
-# Build stage
-FROM ghcr.io/meta-pytorch/openenv-base:latest AS builder
-
-WORKDIR /app
-
-# Ensure uv is available
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv && \
-    install -m 0755 /root/.local/bin/uvx /usr/local/bin/uvx
-
-# Copy environment code
-COPY . /app/env
-WORKDIR /app/env
-
-# Install dependencies using uv sync (no-editable for production)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-editable
-
-# Final runtime stage
 FROM ghcr.io/meta-pytorch/openenv-base:latest
 
 # HF Spaces requirement: Use non-root user (ID 1000)
-# (Already handled in base image, but we ensure correct home dir)
+# The base image already has a 'user' but we ensure we are in the right spot.
 WORKDIR /home/user/app
 
-# Copy the virtual environment and code from builder
-COPY --from=builder /app/env/.venv /home/user/app/.venv
-COPY --from=builder /app/env /home/user/app/env
+# Copy all files to the app directory
+COPY --chown=user . /home/user/app/
+
+# Install dependencies directly into the system/user python to avoid venv issues on HF
+# We install openenv-core[core] to get the standardized environment wrapper
+RUN pip install --no-cache-dir \
+    "openenv-core[core]==0.2.1" \
+    "fastapi>=0.115.0" \
+    "pydantic>=2.0.0" \
+    "uvicorn>=0.24.0" \
+    "requests>=2.31.0"
+
+# Install the current package in editable mode to ensure local imports work
+RUN pip install --no-cache-dir -e .
 
 # Set environment variables
-ENV PATH="/home/user/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/home/user/app/env:$PYTHONPATH"
+ENV PYTHONPATH="/home/user/app:$PYTHONPATH"
 ENV PORT=7860
 ENV ENABLE_WEB_INTERFACE=true
+ENV PYTHONUNBUFFERED=1
 
-# Health check matching echo_env pattern
+# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')" || exit 1
 
-# Run the FastAPI server from the environment directory
-CMD ["sh", "-c", "cd /home/user/app/env && uvicorn server.app:app --host 0.0.0.0 --port 7860"]
+# Run the FastAPI server
+# We use the 'server' script defined in pyproject.toml or call uvicorn directly
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
