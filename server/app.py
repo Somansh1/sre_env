@@ -11,10 +11,19 @@ import traceback
 from typing import Optional
 
 from fastapi import Query
-from openenv.core.env_server.http_server import create_app
-from ..models import SREAction, SREObservation
-from .sre_environment import SREEnvironment
-from ..grader import grade_episode, TASKS, ACTION_SCHEMA
+# Support both in-repo and standalone imports
+try:
+    # In-repo imports (when running from OpenEnv repository)
+    from openenv.core.env_server.http_server import create_app
+    from ..models import SREAction, SREObservation
+    from .sre_environment import SREEnvironment
+    from ..grader import grade_episode, TASKS, ACTION_SCHEMA
+except ImportError:
+    # Standalone imports (when environment is standalone)
+    from openenv.core.env_server.http_server import create_app
+    from models import SREAction, SREObservation
+    from server.sre_environment import SREEnvironment
+    from grader import grade_episode, TASKS, ACTION_SCHEMA
 
 
 def create_sre_environment():

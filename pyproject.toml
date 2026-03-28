@@ -3,16 +3,16 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openenv-sre-env"
+name = "openenv-sre-autopilot"
 version = "0.1.0"
-description = "SRE Autopilot OpenEnv for production incident response"
+description = "SRE Autopilot Environment for OpenEnv - production incident response simulation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "openenv-core[core]>=0.2.0",
+    "openenv-core[core]==0.2.1",
     "fastapi>=0.115.0",
     "pydantic>=2.0.0",
-    "uvicorn[standard]>=0.24.0",
+    "uvicorn>=0.24.0",
     "requests>=2.31.0",
 ]
 
@@ -20,6 +20,7 @@ dependencies = [
 server = "sre_env.server.app:main"
 
 [tool.setuptools]
+include-package-data = true
 packages = ["sre_env", "sre_env.server"]
-package-dir = {"sre_env" = ".", "sre_env.server" = "server"}
+package-dir = { "sre_env" = ".", "sre_env.server" = "server" }
 

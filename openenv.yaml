@@ -1,6 +1,6 @@
 spec_version: 1
-name: sre_env
+name: sre_autopilot
 type: space
 runtime: fastapi
 app: server.app:app
-port: 8000
+port: 7860

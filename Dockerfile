@@ -1,33 +1,44 @@
-# Use a standard Python 3.10 image
-FROM python:3.10-slim
+# Multi-stage build for SRE Autopilot (Standalone HF Space)
+# Aligned with the official echo_env standalone pattern.
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+# Build stage
+FROM ghcr.io/meta-pytorch/openenv-base:latest AS builder
 
-# Create a non-root user for HF Spaces security (User ID 1000)
-RUN useradd -m -u 1000 user
-USER user
-ENV PATH="/home/user/.local/bin:$PATH"
+WORKDIR /app
 
+# Ensure uv is available
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv && \
+    install -m 0755 /root/.local/bin/uvx /usr/local/bin/uvx
+
+# Copy environment code
+COPY . /app/env
+WORKDIR /app/env
+
+# Install dependencies using uv sync (no-editable for production)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-editable
+
+# Final runtime stage
+FROM ghcr.io/meta-pytorch/openenv-base:latest
+
+# HF Spaces requirement: Use non-root user (ID 1000)
+# (Already handled in base image, but we ensure correct home dir)
 WORKDIR /home/user/app
 
-# 1. Install openenv core from the CORRECT official source
-RUN git clone https://github.com/meta-pytorch/OpenEnv.git /tmp/openenv \
-    && cd /tmp/openenv && pip install --user .
+# Copy the virtual environment and code from builder
+COPY --from=builder /app/env/.venv /home/user/app/.venv
+COPY --from=builder /app/env /home/user/app/env
 
-# 2. Pre-install known dependencies
-RUN pip install --user fastapi pydantic uvicorn requests
-
-# 3. Copy your environment code
-COPY --chown=user . /home/user/app/envs/sre_env
-
-# 4. Install the environment WITHOUT trying to re-resolve core
-RUN cd /home/user/app/envs/sre_env && pip install --user --no-deps .
-
-# Expose port (HF default)
-EXPOSE 7860
+# Set environment variables
+ENV PATH="/home/user/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/home/user/app/env:$PYTHONPATH"
 ENV PORT=7860
-ENV PYTHONPATH="/home/user/app"
+ENV ENABLE_WEB_INTERFACE=true
 
-# Launch the FastAPI server
-CMD ["python", "-m", "envs.sre_env.server.app"]
+# Health check matching echo_env pattern
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')" || exit 1
+
+# Run the FastAPI server from the environment directory
+CMD ["sh", "-c", "cd /home/user/app/env && uvicorn server.app:app --host 0.0.0.0 --port 7860"]
