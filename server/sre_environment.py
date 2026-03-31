@@ -5,7 +5,10 @@ from typing import Dict, List, Optional
 try:
     from models import SREAction, SREObservation, SREState, SREReward
 except (ImportError, ValueError):
-    from ..models import SREAction, SREObservation, SREState, SREReward
+    try:
+        from sre_env.models import SREAction, SREObservation, SREState, SREReward
+    except (ImportError, ValueError):
+        from ..models import SREAction, SREObservation, SREState, SREReward
 from openenv.core.env_server.interfaces import Environment
 
 # Fixed topology

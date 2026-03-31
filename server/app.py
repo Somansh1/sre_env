@@ -9,23 +9,28 @@ import json
 import time
 import traceback
 from typing import Optional
-
 from fastapi import Query
-# Support both in-repo and standalone imports
+
+# Support standalone (PYTHONPATH), installed package (sre_env.*), and relative imports
 try:
-    # Try absolute imports (standalone mode)
+    # Standalone mode (PYTHONPATH includes project root)
     from openenv.core.env_server.http_server import create_app
-    import models
-    from server.sre_environment import SREEnvironment
-    import grader
     from models import SREAction, SREObservation
+    from server.sre_environment import SREEnvironment
     from grader import grade_episode, TASKS, ACTION_SCHEMA
 except ImportError:
-    # Try relative imports (in-repo mode)
-    from openenv.core.env_server.http_server import create_app
-    from ..models import SREAction, SREObservation
-    from .sre_environment import SREEnvironment
-    from ..grader import grade_episode, TASKS, ACTION_SCHEMA
+    try:
+        # Installed package mode (pip install / uv sync)
+        from openenv.core.env_server.http_server import create_app
+        from sre_env.models import SREAction, SREObservation
+        from sre_env.server.sre_environment import SREEnvironment
+        from sre_env.grader import grade_episode, TASKS, ACTION_SCHEMA
+    except ImportError:
+        # Relative import mode (running as subpackage)
+        from openenv.core.env_server.http_server import create_app
+        from ..models import SREAction, SREObservation
+        from .sre_environment import SREEnvironment
+        from ..grader import grade_episode, TASKS, ACTION_SCHEMA
 
 
 def create_sre_environment():
