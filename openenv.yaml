@@ -4,3 +4,17 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+
+tasks:
+  - id: easy
+    name: Single Service OOM Recovery
+    difficulty: easy
+    max_steps: 30
+  - id: medium
+    name: Cascading Database Failure
+    difficulty: medium
+    max_steps: 30
+  - id: hard
+    name: Intermittent Flapping Network
+    difficulty: hard
+    max_steps: 30
