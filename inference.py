@@ -146,7 +146,7 @@ def env_reset(tier: str) -> dict:
 
 def env_step(action: dict) -> dict:
     """Take a step in the SRE environment."""
-    payload = {"action": action["action"], "service_id": action.get("service_id")}
+    payload = {"action": {"action": action["action"], "service_id": action.get("service_id")}}
     resp = requests.post(f"{ENV_BASE_URL}/step", json=payload)
     resp.raise_for_status()
     return resp.json()
