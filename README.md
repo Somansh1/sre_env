@@ -85,9 +85,9 @@ The reward is dense and compounding:
 Before running `inference.py`, set the following environment variables:
 
 ```bash
-export API_BASE_URL="https://api.openai.com/v1"   # The API endpoint for the LLM
-export MODEL_NAME="gpt-4o-mini"                     # The model identifier to use
-export HF_TOKEN="your-api-key-here"                 # Your Hugging Face / API key
+export API_BASE_URL="https://api.groq.com/openai/v1" # Free Groq API (OpenAI Compatible)
+export MODEL_NAME="llama-3.1-8b-instant"             # Groq's specific model string
+export HF_TOKEN="gsk_your_groq_api_key_here"         # Paste your Groq API key (keeping var name)
 ```
 
 ### Quick Start — Python Client
