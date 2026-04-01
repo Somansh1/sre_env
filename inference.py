@@ -1,35 +1,61 @@
 """
-inference.py — Submission-required inference script for SRE Autopilot.
+Inference Script — SRE Autopilot
+===================================
+MANDATORY
+- Before submitting, ensure the following variables are defined in your environment configuration:
+    API_BASE_URL   The API endpoint for the LLM.
+    MODEL_NAME     The model identifier to use for inference.
+    HF_TOKEN       Your Hugging Face / API key.
 
-Uses the OpenAI Client to call an LLM via the following environment variables:
-  - API_BASE_URL : The API endpoint for the LLM (e.g., https://api.openai.com/v1)
-  - MODEL_NAME   : The model identifier (e.g., gpt-4o-mini)
-  - HF_TOKEN     : Your Hugging Face / API key (used as the OpenAI API key)
+- Defaults are set for API_BASE_URL and MODEL_NAME:
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+    MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
-Runs all 3 task tiers (easy, medium, hard), prints scores in 0.0–1.0 range.
+- The inference script must be named `inference.py` and placed in the root directory of the project.
+- Participants must use OpenAI Client for all LLM calls using above variables.
+
+STDOUT FORMAT
+- The script must emit exactly three line types to stdout, in this order:
+
+    [START] task=<task_name> env=<benchmark> model=<model_name>
+    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
+
+  Rules:
+    - One [START] line at episode begin.
+    - One [STEP] line per step, immediately after env.step() returns.
+    - One [END] line after env.close(), always emitted (even on exception).
+    - reward and rewards are formatted to 2 decimal places.
+    - done and success are lowercase booleans: true or false.
+    - error is the raw last_action_error string, or null if none.
+    - All fields on a single line with no newlines within a line.
+
+  Example:
+    [START] task=easy env=sre_autopilot model=Qwen/Qwen2.5-72B-Instruct
+    [STEP] step=1 action=restart(auth_service) reward=0.35 done=false error=null
+    [STEP] step=2 action=wait() reward=0.50 done=false error=null
+    [STEP] step=3 action=scale_up(inventory_db) reward=0.80 done=true error=null
+    [END] success=true steps=3 rewards=0.35,0.50,0.80
 """
 
 import os
 import sys
 import json
 import re
-import time
 import requests
+from typing import List, Optional
 
 from openai import OpenAI
 
 # ──────────────────────────────────────────────────────────
 # Environment Variables (required)
 # ──────────────────────────────────────────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL")
-MODEL_NAME = os.environ.get("MODEL_NAME")
-HF_TOKEN = os.environ.get("HF_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 
-if not API_BASE_URL or not MODEL_NAME or not HF_TOKEN:
-    print("ERROR: The following environment variables must be set:")
-    print("  API_BASE_URL  — The API endpoint for the LLM")
-    print("  MODEL_NAME    — The model identifier to use")
-    print("  HF_TOKEN      — Your Hugging Face / API key")
+if not HF_TOKEN:
+    print("ERROR: HF_TOKEN (or API_KEY) environment variable must be set.", flush=True)
     sys.exit(1)
 
 # ──────────────────────────────────────────────────────────
@@ -43,8 +69,43 @@ client = OpenAI(
 # ──────────────────────────────────────────────────────────
 # SRE Environment Server URL
 # ──────────────────────────────────────────────────────────
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
+# ──────────────────────────────────────────────────────────
+# Task Configuration
+# ──────────────────────────────────────────────────────────
+BENCHMARK = "sre_autopilot"
+MAX_STEPS = 30
+SUCCESS_SCORE_THRESHOLD = 0.5  # normalized score in [0, 1]
+
+
+# ──────────────────────────────────────────────────────────
+# Structured Logging (MANDATORY FORMAT)
+# ──────────────────────────────────────────────────────────
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
+        flush=True,
+    )
+
+
+# ──────────────────────────────────────────────────────────
+# LLM Agent Prompt
+# ──────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an elite Site Reliability Engineer (SRE) managing a production microservices system.
 
 Your goal is to restore ALL services to SLA compliance (latency < 200ms, error rate < 1%).
@@ -77,6 +138,9 @@ Strategy tips:
 - Don't waste restarts on services that are only failing due to downstream issues."""
 
 
+# ──────────────────────────────────────────────────────────
+# LLM Call (uses OpenAI Client)
+# ──────────────────────────────────────────────────────────
 def call_llm(observation: dict) -> dict:
     """Call the LLM via OpenAI client and parse the action response."""
     user_prompt = f"""Current system state (step {observation.get('step', '?')}):
@@ -133,10 +197,13 @@ What is your next action? Respond STRICTLY in JSON."""
         return {"action": action, "service_id": service_id, "thought": thought}
 
     except Exception as e:
-        print(f"  [LLM Error] {e}. Falling back to wait.")
+        print(f"  [LLM Error] {e}. Falling back to wait.", flush=True)
         return {"action": "wait", "service_id": None, "thought": "LLM fallback"}
 
 
+# ──────────────────────────────────────────────────────────
+# Environment HTTP Helpers
+# ──────────────────────────────────────────────────────────
 def env_reset(tier: str) -> dict:
     """Reset the SRE environment for a given task tier."""
     resp = requests.post(f"{ENV_BASE_URL}/reset", json={"task_tier": tier})
@@ -152,105 +219,86 @@ def env_step(action: dict) -> dict:
     return resp.json()
 
 
-def run_grader(tier: str) -> dict:
-    """Call the grader endpoint for a given tier."""
-    resp = requests.get(f"{ENV_BASE_URL}/grader", params={"tier": tier})
-    resp.raise_for_status()
-    return resp.json()
+# ──────────────────────────────────────────────────────────
+# Format action string for [STEP] logging
+# ──────────────────────────────────────────────────────────
+def format_action(action: dict) -> str:
+    """Format the action dict into a readable action string for logging."""
+    act = action.get("action", "wait")
+    svc = action.get("service_id")
+    if svc:
+        return f"{act}({svc})"
+    return f"{act}()"
 
 
-def run_episode(tier: str, max_steps: int = 30) -> dict:
-    """Run a full inference episode for one task tier."""
-    print(f"\n{'='*60}")
-    print(f"  TASK: {tier.upper()}")
-    print(f"{'='*60}")
-
-    # Reset environment
-    result = env_reset(tier)
-    observation = result.get("observation", result)
-
-    total_reward = 0.0
+# ──────────────────────────────────────────────────────────
+# Run Episode
+# ──────────────────────────────────────────────────────────
+def run_episode(tier: str) -> None:
+    """Run a full inference episode for one task tier with structured logging."""
+    rewards: List[float] = []
     steps_taken = 0
+    success = False
 
-    for step_num in range(max_steps):
-        done = observation.get("done", False)
-        if done:
-            break
+    # Emit [START]
+    log_start(task=tier, env=BENCHMARK, model=MODEL_NAME)
 
-        # Get LLM action
-        llm_result = call_llm(observation)
-        thought = llm_result.get("thought", "")
-        action_str = llm_result["action"]
-        service = llm_result.get("service_id", "none")
+    try:
+        # Reset environment
+        result = env_reset(tier)
+        observation = result.get("observation", result)
 
-        print(f"  [{step_num:2d}] {action_str:10s} -> {service or 'none':20s} | {thought}")
+        for step in range(1, MAX_STEPS + 1):
+            done = observation.get("done", False)
+            if done:
+                break
 
-        # Take step
-        step_result = env_step(llm_result)
-        observation = step_result.get("observation", step_result)
-        reward = step_result.get("reward", observation.get("reward_hint", 0.0))
-        total_reward += reward
-        steps_taken = step_num + 1
+            # Get LLM action
+            llm_result = call_llm(observation)
+            action_str = format_action(llm_result)
 
-    print(f"  --- Episode complete: {steps_taken} steps, total reward: {total_reward:.3f}")
+            # Take step in environment
+            step_result = env_step(llm_result)
+            observation = step_result.get("observation", step_result)
+            reward = step_result.get("reward", observation.get("reward_hint", 0.0))
+            done = observation.get("done", False)
+            error = step_result.get("error", None)
 
-    # Get final SLA status
-    final_sla = observation.get("sla_status", {})
-    sla_ok = sum(1 for v in final_sla.values() if v)
-    sla_total = len(final_sla) if final_sla else 0
-    print(f"  --- Final SLA: {sla_ok}/{sla_total} services healthy")
+            rewards.append(reward)
+            steps_taken = step
 
-    return {
-        "tier": tier,
-        "steps_taken": steps_taken,
-        "total_reward": total_reward,
-        "final_sla": final_sla,
-    }
+            # Emit [STEP] immediately after env.step()
+            log_step(step=step, action=action_str, reward=reward, done=done, error=error)
+
+            if done:
+                break
+
+        # Determine success based on final SLA status
+        final_sla = observation.get("sla_status", {})
+        if final_sla:
+            sla_ok = sum(1 for v in final_sla.values() if v)
+            sla_total = len(final_sla)
+            score = sla_ok / sla_total if sla_total > 0 else 0.0
+            success = score >= SUCCESS_SCORE_THRESHOLD
+        else:
+            success = False
+
+    except Exception as exc:
+        print(f"  [ERROR] Episode failed: {exc}", flush=True)
+        success = False
+
+    finally:
+        # Emit [END] — always, even on exception
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
 
+# ──────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────
 def main():
-    print("=" * 60)
-    print("  SRE Autopilot — Inference Script")
-    print(f"  Model:    {MODEL_NAME}")
-    print(f"  API Base: {API_BASE_URL}")
-    print(f"  Env URL:  {ENV_BASE_URL}")
-    print("=" * 60)
-
     tiers = ["easy", "medium", "hard"]
-    results = {}
-
     for tier in tiers:
-        episode_result = run_episode(tier)
-        results[tier] = episode_result
-
-    # ── Summary ──────────────────────────────────────────
-    print(f"\n{'='*60}")
-    print("  RESULTS SUMMARY")
-    print(f"{'='*60}")
-    print(f"  {'Tier':<10} {'Steps':<8} {'Reward':<10} {'SLA'}")
-    print(f"  {'-'*45}")
-    for tier in tiers:
-        r = results[tier]
-        sla = r["final_sla"]
-        sla_ok = sum(1 for v in sla.values() if v)
-        sla_total = len(sla) if sla else 0
-        print(f"  {tier:<10} {r['steps_taken']:<8} {r['total_reward']:<10.3f} {sla_ok}/{sla_total}")
-
-    # ── Run graders and print scores ─────────────────────
-    print(f"\n{'='*60}")
-    print("  GRADER SCORES (0.0 – 1.0)")
-    print(f"{'='*60}")
-    for tier in tiers:
-        try:
-            grader_result = run_grader(tier)
-            score = grader_result.get("score", "N/A")
-            print(f"  {tier:<10} score = {score}")
-        except Exception as e:
-            print(f"  {tier:<10} grader error: {e}")
-
-    print(f"\n{'='*60}")
-    print("  Inference complete.")
-    print(f"{'='*60}")
+        run_episode(tier)
 
 
 if __name__ == "__main__":
