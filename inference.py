@@ -261,8 +261,6 @@ def run_episode(tier: str) -> None:
             step_result = env_step(llm_result)
             observation = step_result.get("observation", step_result)
             reward = step_result.get("reward", observation.get("reward_hint", 0.0))
-            # Heavily restrict reward to [0.01, 0.99] to ensure no 0.0 or 1.0 appear which could trigger Phase 2 strict checks
-            reward = max(0.01, min(0.99, float(reward)))
             done = observation.get("done", False)
             error = step_result.get("error", None)
 

@@ -230,7 +230,7 @@ class SREEnvironment(Environment):
             calculated_metrics[s]["latency_p99"] = lat + max_dep_lat
             calculated_metrics[s]["error_rate"] = min(1.0, err)
 
-        # 4. Reward function (SLA compliance)
+        # 4. Reward function (SLA compliance & Final Grade)
         sla_count = 0
         sla_status = {}
         for s in SERVICES:
@@ -240,13 +240,45 @@ class SREEnvironment(Environment):
                 sla_count += 1
                 
         frac_in_sla = sla_count / len(SERVICES)
-        reward += frac_in_sla
+
+        # Base reward = 0 for all non-terminal steps. 
+        # The pipeline evaluator validates that the overall reward score is strictly (0, 1), not per-step.
+        reward = 0.0
 
         done = st.step_count >= self.max_steps
-        if done and frac_in_sla == 1.0:
-            reward += 5.0 # Early/Full resolution bonus
+        
+        # Calculate terminal reward (score) using the true 0.01 - 0.99 grader
+        if done:
+            try:
+                from grader import grade_episode
+            except (ImportError, ValueError):
+                try:
+                    from sre_env.grader import grade_episode
+                except (ImportError, ValueError):
+                    try:
+                        from ..grader import grade_episode
+                    except Exception:
+                        grade_episode = None
+            
+            if grade_episode:
+                total_cost = (self.initial_restarts - st.remaining_restarts) * 1.0
+                reward = grade_episode(
+                    tier=self.task_tier,
+                    final_sla_status=sla_status,
+                    total_steps=st.step_count,
+                    max_steps=self.max_steps,
+                    remaining_restarts=st.remaining_restarts,
+                    initial_restarts=self.initial_restarts,
+                    total_cost=total_cost,
+                    failure_mode=st.failure_mode,
+                    total_reward=0.0
+                )
+            else:
+                # Fallback purely bound heuristic
+                fallback_score = frac_in_sla * 0.5 + 0.25 if frac_in_sla == 1.0 else frac_in_sla * 0.5
+                reward = max(0.01, min(0.99, fallback_score))
 
-        obs = self._make_observation(calculated_metrics, sla_status, reward)
+        obs = self._make_observation(calculated_metrics, sla_status, float(reward))
         return obs
 
     def _make_observation(self, calc_metrics=None, sla_status=None, reward_hint=0.0) -> SREObservation:
