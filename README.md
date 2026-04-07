@@ -68,13 +68,11 @@ We implement exactly 3 tiers of difficulty perfectly suited for continuous gradi
 
 ---
 
-## 💰 Multi-Objective Reward Function
+## 💰 Evaluation & Reward Function
 
-The reward is dense and compounding:
-- **`+ [0.0 - 1.0]`**: Fraction of services meeting SLA per step.
-- **`-0.1`**: Destructive action penalty (restarting consumes budget and causes downtime).
-- **`-0.05`**: Cost penalty (scaling up).
-- **`+5.0`**: Resolution bonus if 100% SLA is restored at episode end.
+To strictly comply with the Phase 2 deep validation checks, episodic rewards are calculated as an overall evaluation score (bounded strictly between 0.01 and 0.99) rather than raw unbounded per-step feedback:
+- **`0.0`**: Reward emitted for all non-terminal intermediate steps.
+- **`Final Score (0.01–0.99)`**: On the terminal step (`done=True`), the environment inherently invokes `grader.py`. The terminal reward encapsulates SLA compliance, step efficiency, budget spent, and tier-specific root-cause resolution bonuses, guaranteed to yield a strict Phase 2 validated score.
 
 ---
 
