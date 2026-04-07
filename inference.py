@@ -19,23 +19,24 @@ STDOUT FORMAT
 
     [START] task=<task_name> env=<benchmark> model=<model_name>
     [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END]   success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
+    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
 
   Rules:
     - One [START] line at episode begin.
     - One [STEP] line per step, immediately after env.step() returns.
     - One [END] line after env.close(), always emitted (even on exception).
-    - reward and rewards are formatted to 2 decimal places.
+    - reward and rewards are formatted to 2 decimal places, score is 3 decimal places.
     - done and success are lowercase booleans: true or false.
     - error is the raw last_action_error string, or null if none.
     - All fields on a single line with no newlines within a line.
+    - Each task should return a score in [0, 1].
 
   Example:
     [START] task=easy env=sre_autopilot model=Qwen/Qwen2.5-72B-Instruct
-    [STEP] step=1 action=restart(auth_service) reward=0.35 done=false error=null
-    [STEP] step=2 action=wait() reward=0.50 done=false error=null
+    [STEP] step=1 action=restart(auth_service) reward=0.00 done=false error=null
+    [STEP] step=2 action=wait() reward=0.00 done=false error=null
     [STEP] step=3 action=scale_up(inventory_db) reward=0.80 done=true error=null
-    [END] success=true steps=3 rewards=0.35,0.50,0.80
+    [END] success=true steps=3 score=0.990 rewards=0.00,0.00,0.80
 """
 
 import os
@@ -95,10 +96,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -239,6 +240,7 @@ def run_episode(tier: str) -> None:
     rewards: List[float] = []
     steps_taken = 0
     success = False
+    score = 0.001  # Initialize score to safe default — NEVER 0.0
 
     # Emit [START]
     log_start(task=tier, env=BENCHMARK, model=MODEL_NAME)
@@ -261,6 +263,8 @@ def run_episode(tier: str) -> None:
             step_result = env_step(llm_result)
             observation = step_result.get("observation", step_result)
             reward = step_result.get("reward", observation.get("reward_hint", 0.0))
+            # Ensure reward is pure Python float (Issue #1: Type issues)
+            reward = float(reward) if reward is not None else 0.0
             done = observation.get("done", False)
             error = step_result.get("error", None)
 
@@ -273,24 +277,59 @@ def run_episode(tier: str) -> None:
             if done:
                 break
 
-        # Determine success based on final SLA status
-        final_sla = observation.get("sla_status", {})
-        if final_sla:
-            sla_ok = sum(1 for v in final_sla.values() if v)
-            sla_total = len(final_sla)
-            score = sla_ok / sla_total if sla_total > 0 else 0.0
-            score = max(0.01, min(0.99, score))
-            success = score >= SUCCESS_SCORE_THRESHOLD
-        else:
-            success = False
+        # ── Compute final score ──
+        # Strategy: Call the /grader endpoint which uses our grader.py
+        # This is the authoritative score the evaluator should see.
+        try:
+            grader_resp = requests.get(f"{ENV_BASE_URL}/grader", params={"tier": tier}, timeout=30)
+            grader_resp.raise_for_status()
+            grader_data = grader_resp.json()
+            score = grader_data.get("score", None)
+            print(f"  [DEBUG] Grader response for tier={tier}: score={score} type={type(score)}", flush=True)
+        except Exception as grader_err:
+            print(f"  [DEBUG] Grader endpoint failed: {grader_err}", flush=True)
+            score = None
+
+        # Fallback: compute from SLA if grader didn't work
+        if score is None:
+            final_sla = observation.get("sla_status", {})
+            if final_sla:
+                sla_ok = sum(1 for v in final_sla.values() if v)
+                sla_total = len(final_sla)
+                score = sla_ok / sla_total if sla_total > 0 else 0.0
+            else:
+                score = 0.0
+
+        # ── CRITICAL: Sanitize score (Issues #1, #2, #3) ──
+        # Convert to pure Python float (not numpy, not string, not None)
+        score = float(score)
+        # Clamp to [0, 1] first
+        score = max(0.0, min(1.0, score))
+        # Then enforce STRICTLY between (0, 1) — not 0.0, not 1.0
+        if score <= 0.0:
+            score = 0.001
+        if score >= 1.0:
+            score = 0.999
+
+        success = score >= SUCCESS_SCORE_THRESHOLD
+
+        # Debug log before emitting (Issue #4 debugging)
+        print(f"  [DEBUG] GRADE: tier={tier} score={score} type={type(score).__name__}", flush=True)
 
     except Exception as exc:
         print(f"  [ERROR] Episode failed: {exc}", flush=True)
         success = False
+        score = 0.001  # Safe fallback — NEVER 0.0
 
     finally:
         # Emit [END] — always, even on exception
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        # Final safety net: ensure score is pure float in (0, 1)
+        score = float(score)
+        if score <= 0.0:
+            score = 0.001
+        if score >= 1.0:
+            score = 0.999
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 # ──────────────────────────────────────────────────────────
