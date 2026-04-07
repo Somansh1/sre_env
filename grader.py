@@ -86,8 +86,9 @@ def grade_episode(
             tier_component = sla_score * 0.08
     
     final_score = round(min(1.0, sla_component + efficiency_component + tier_component), 4)
-    final_score = max(0.0001, min(0.9999, final_score))
-    return final_score
+    # Restrict score heavily to avoid any float rounding issues in the pipeline causing 1.0 or 0.0
+    final_score = max(0.01, min(0.99, final_score))
+    return float(final_score)
 
 
 # --- Task Definitions ---
