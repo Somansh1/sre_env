@@ -86,6 +86,7 @@ def grade_episode(
             tier_component = sla_score * 0.08
     
     final_score = round(min(1.0, sla_component + efficiency_component + tier_component), 4)
+    final_score = max(0.0001, min(0.9999, final_score))
     return final_score
 
 
